@@ -1,0 +1,8 @@
+[package]
+name = "minnie"
+version = "0.1.0"
+authors = ["Jamie Blondin <jblondin@gmail.com>"]
+
+[dependencies.nom]
+version = "^3.1"
+features = ["verbose-errors"]
