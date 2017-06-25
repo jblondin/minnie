@@ -27,10 +27,17 @@ impl Repl {
                         writeln!(cout).map_err(|e| format!("{}: {}", stdout_errstr, e))?;
                         continue;
                     }
-                    let tokens = Lexer::lex(&input);
-                    for token in &tokens {
-                        writeln!(cout, "{:?}", token).map_err(|e| format!("{}: {}", stdout_errstr,
-                            e))?;
+                    match Lexer::lex(&input) {
+                        Ok(tokens) => {
+                            for token in &tokens {
+                                writeln!(cout, "{:?}", token).map_err(|e| format!("{}: {}",
+                                    stdout_errstr, e))?;
+                            }
+                        },
+                        Err(e) => {
+                            writeln!(cout, "{}", e).map_err(|e| format!("{}: {}",
+                                    stdout_errstr, e))?;
+                        }
                     }
                 }
                 Err(error) => {
