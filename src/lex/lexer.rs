@@ -1,17 +1,18 @@
-use std::num::ParseIntError;
+use std::str::FromStr;
 
-use nom;
+use nom::{self, IResult};
 
 use errors::*;
 
-use lex::token::{Token, TokenType, Literal, NumberLiteral};
+use lex::{CustomNomError, stringify_number};
+use lex::token::{Token, TokenType};
 use lex::span::Span;
+use lex::escape::escape;
 
 pub struct Lexer {}
 impl Lexer {
     pub fn lex(input: &str) -> Result<Vec<Token>> {
-        let result = lex(Span::start(input));
-        match result {
+        match lex(Span::start(input)) {
             nom::IResult::Done(_, tokens) => Ok(tokens),
             nom::IResult::Incomplete(needed) => {
                 let num_needed = match needed {
@@ -35,24 +36,6 @@ impl Lexer {
     }
 }
 
-enum CustomNomError {
-    NoDefault,
-    IntegerParse,
-    Unimplemented
-}
-
-macro_rules! default_if (
-    ($i:expr, $submac:ident!( $($args:tt)* ), $submac2:ident!( $($args2:tt)* )) => ({
-        let i_ = $i.clone();
-        if $submac!(i_, $($args)*) {
-            $submac2!(i_, $($args2)*)
-        } else {
-            nom::IResult::Error(error_position!(nom::ErrorKind::Custom(
-                CustomNomError::NoDefault as u32), $i))
-        }
-    });
-);
-
 named!(lex<Span, Vec<Token>>, alt!(
     ws!(default_if!(call!(|s: Span| { s.is_empty() }), value!(vec![]))) |
     ws!(many0!(lex_single_token))
@@ -62,16 +45,10 @@ named!(lex_single_token<Span, Token>, alt_complete!(
     lex_punctuation |
     lex_operators |
     lex_keywords |
-    lex_identifier |
     lex_literal |
+    lex_identifier |
     lex_illegal
 ));
-
-macro_rules! tag_span {
-    ($i:expr, $tag:expr) => ({
-        tag!($i, Span::new($tag, 0, 0, 0))
-    });
-}
 
 named!(lex_punctuation<Span, Token>, alt!(
     do_parse!(span: tag_span!(",") >> (Token::new(TokenType::Comma, span))) |
@@ -111,93 +88,13 @@ named!(lex_keywords<Span, Token>, alt!(
     do_parse!(span: tag_span!("fn")        >> (Token::new(TokenType::Function, span))) |
     do_parse!(span: tag_span!("if")        >> (Token::new(TokenType::If, span))) |
     do_parse!(span: tag_span!("else")      >> (Token::new(TokenType::Else, span))) |
-    do_parse!(span: tag_span!("return")    >> (Token::new(TokenType::Return, span))) |
-    do_parse!(span: tag_span!("true")      >> (Token::new(TokenType::True, span))) |
-    do_parse!(span: tag_span!("false")     >> (Token::new(TokenType::False, span)))
+    do_parse!(span: tag_span!("return")    >> (Token::new(TokenType::Return, span)))
 ));
 
-macro_rules! take_while_first_rest {
-    ($i:expr, $prefix_cnt:expr, $firstmac:ident!( $($firstargs:tt)* ),
-            $restmac:ident!( $($restargs:tt)* ), $tycrmac:ident!( $($tycrargs:tt)* )) => ({
-
-        use nom::{InputLength, InputIter, Slice};
-        let input = $i;
-
-        match input.slice_index($prefix_cnt) {
-            None => nom::IResult::Incomplete(nom::Needed::Size($prefix_cnt)),
-            Some(init_index) => {
-                if $firstmac!(input.slice(..init_index).as_slice(), $($firstargs)*) {
-                    match input.slice(init_index..).position(|c| !$restmac!(c, $($restargs)*)) {
-                        Some(index) => {
-                            let index = index + init_index;
-                            let Span { offset, line, column, .. } = input;
-                            match $tycrmac!(input.slice(..index).as_slice(), $($tycrargs)*) {
-                                Ok(ty) => nom::IResult::Done(input.slice(index..),
-                                    Token::new(ty, Span::new(input.slice(..index).as_slice(),
-                                        offset, line, column))),
-                                Err(_) => nom::IResult::Error(error_position!(
-                                    nom::ErrorKind::Custom(
-                                        CustomNomError::IntegerParse as u32), input))
-                            }
-
-                        },
-                        None => {
-                            match $tycrmac!(input.slice(..input.input_len()).as_slice(),
-                                    $($tycrargs)*) {
-                                Ok(ty) => nom::IResult::Done(input.slice(input.input_len()..),
-                                    Token::new(ty, input)),
-                                Err(_) => nom::IResult::Error(error_position!(
-                                    nom::ErrorKind::Custom(
-                                        CustomNomError::IntegerParse as u32), input))
-                            }
-                        }
-                    }
-                } else {
-                    nom::IResult::Error(error_position!(nom::ErrorKind::Verify, input))
-                }
-            }
-        }
-    });
-    ($i:expr, $prefix_cnt:expr, $firstexp:expr, $restmac:ident!( $($restargs:tt)* ),
-            $tycrmac:ident!( $($tycrargs:tt)* )) => (
-        take_while_first_rest!($i, $prefix_cnt, call!($firstexp), $restmac!($($restargs)*),
-            $tycrmac!($($tycrargs)*));
-    );
-    ($i:expr, $prefix_cnt:expr, $firstmac:ident!( $($firstargs:tt)* ), $restexp:expr,
-            $tycrmac:ident!( $($tycrargs:tt)* )) => (
-        take_while_first_rest!($i, $prefix_cnt, $firstmac!($($firstargs)*), call!($restexp),
-            $tycrmac!($($tycrargs)*));
-    );
-    ($i:expr, $prefix_cnt:expr, $firstmac:ident!( $($firstargs:tt)* ),
-            $restmac:ident!( $($restargs:tt)* ), $tycrexp:expr) => (
-        take_while_first_rest!($i, $prefix_cnt, $firstmac!($($firstargs)*),
-            $restmac!($($restargs)*), call!($tycrexp));
-    );
-    (i:expr, $prefix_cnt:expr, $firstexp:expr, $restexp:expr,
-            $tycrmac:ident!( $($tycrargs:tt)* )) => (
-        take_while_first_rest!($i, $prefix_cnt, call!($firstexp), call!($restexp),
-            $tycrmac!($($tycrargs)*));
-    );
-    (i:expr, $prefix_cnt:expr, $firstexp:expr, $restmac:ident!( $($restargs:tt)* ),
-            $tycrexp:expr) => (
-        take_while_first_rest!($i, $prefix_cnt, call!($firstexp), $restmac!($($restargs)*),
-            call!($tycrexp));
-    );
-    (i:expr, $prefix_cnt:expr, $firstmac:ident!( $($firstargs:tt)* ), $restexp:expr,
-            $tycrexp:expr) => (
-        take_while_first_rest!($i, $prefix_cnt, call!($firstexp), call!($restexp),
-            $tycrmac!($($tycrargs)*));
-    );
-    ($i:expr, $prefix_cnt:expr, $firstexp:expr, $restexp:expr, $tycrexp:expr) => (
-        take_while_first_rest!($i, $prefix_cnt, call!($firstexp), call!($restexp), call!($tycrexp));
-    );
-}
-
-named!(lex_identifier<Span, Token>, take_while_first_rest!(
-    1,
-    call!(|s: &str| s.chars().all(|c| c.is_xid_start())),
-    call!(|c: char| c.is_xid_continue()),
-    call!(|s: &str| -> Result<TokenType> { Ok(TokenType::Identifier(s.to_string())) })
+named!(lex_identifier<Span, Token>, do_parse!(
+    span: take_while_first_rest!(1, call!(|s: &str| s.chars().all(|c| c.is_xid_start())),
+        call!(|c: char| c.is_xid_continue())) >>
+    (Token::new(TokenType::Identifier(span.as_slice().to_string()), span))
 ));
 
 named!(lex_literal<Span, Token>, alt!(
@@ -207,8 +104,8 @@ named!(lex_literal<Span, Token>, alt!(
 ));
 
 named!(lex_number_literal<Span, Token>, alt!(
-    lex_integer_literal |
-    lex_float_literal
+    lex_float_literal |
+    lex_integer_literal
 ));
 
 named!(lex_integer_literal<Span, Token>, alt!(
@@ -218,56 +115,181 @@ named!(lex_integer_literal<Span, Token>, alt!(
     lex_dec_literal
 ));
 
-#[inline]
-fn parse_int(s: &str, radix: u32, start_at: usize) -> ::std::result::Result<i64, ParseIntError> {
-    let mut ret = String::new();
-    let chars: Vec<char> = s.chars().filter(|&c: &char| c != '_').collect();
-    for c in chars { ret.push(c); }
-    i64::from_str_radix(&(ret.as_ref() as &str)[start_at..], radix)
+named!(lex_hex_literal<Span, Token>, preceded!(tag_span!("0x"), do_parse!(
+    tup: map_res!(take_while!(call!(|c: char| c.is_digit(16) || c == '_')),
+        |span| i64::from_str_radix(&stringify_number(span), 16).map(|res| (span, res))) >>
+    (Token::new(TokenType::int(tup.1),
+        tup.0))
+)));
+
+named!(lex_oct_literal<Span, Token>, preceded!(tag_span!("0o"), do_parse!(
+    tup: map_res!(take_while!(call!(|c: char| c.is_digit(8) || c == '_')),
+        |span| i64::from_str_radix(&stringify_number(span), 8).map(|res| (span, res))) >>
+    (Token::new(TokenType::int(tup.1),
+        tup.0))
+)));
+
+named!(lex_bin_literal<Span, Token>, preceded!(tag_span!("0b"), do_parse!(
+    tup: map_res!(take_while!(call!(|c: char| c.is_digit(2) || c == '_')),
+        |span| i64::from_str_radix(&stringify_number(span), 2).map(|res| (span, res))) >>
+    (Token::new(TokenType::int(tup.1),
+        tup.0))
+)));
+
+named!(lex_dec_literal<Span, Token>, do_parse!(
+    tup: map_res!(take_while!(call!(|c: char| c.is_digit(10) || c == '_' )),
+        |span| i64::from_str_radix(&stringify_number(span), 10).map(|res| (span, res))) >>
+    (Token::new(TokenType::int(tup.1), tup.0))
+));
+
+fn float_to_token(span: Span, len: usize) -> nom::IResult<Span, Token> {
+    use nom::Slice;
+    let full_float = span.slice(..len);
+    match f64::from_str(&stringify_number(full_float)) {
+        Ok(float) => IResult::Done(span.slice(len..),
+            Token::new(TokenType::float(float), full_float)),
+        Err(_) => IResult::Error(error_position!(CustomNomError::LexFloat.into(), span)),
+    }
 }
-named!(lex_hex_literal<Span, Token>, take_while_first_rest!(
-    2,
-    call!(|s: &str| s == "0x"),
-    call!(|c: char| c.is_digit(16) || c == '_'),
-    call!(|s: &str| parse_int(s, 16, 2).map(|i| TokenType::Literal(Literal::Number(
-        NumberLiteral::Int(i)))))
+fn exponent(span: Span) -> nom::IResult<Span, Span> {
+    use nom::{InputLength, Slice};
+    const EXP_CHAR_LOWER: &str = "e";
+    const EXP_CHAR_UPPER: &str = "E";
+    let exp_char_len = EXP_CHAR_LOWER.input_len();
+    const SIGN_CHAR_PLUS: &str = "+";
+    const SIGN_CHAR_MINUS: &str = "-";
+    let sign_char_len = SIGN_CHAR_PLUS.input_len();
+
+    complete!(span, do_parse!(
+        alt!(tag_span!(EXP_CHAR_UPPER) | tag_span!(EXP_CHAR_LOWER)) >>
+        has_sign: opt!(alt!(tag_span!(SIGN_CHAR_PLUS) | tag_span!(SIGN_CHAR_MINUS))) >>
+        exp: take_while!(call!(|c: char| c.is_digit(10) || c == '_')) >>
+        ({
+            let exp_len = exp.input_len() + exp_char_len +
+                if has_sign.is_some() { sign_char_len } else { 0 };
+            span.slice(..exp_len)
+        })
+    ))
+}
+fn float_no_sep(span: Span) -> nom::IResult<Span, Token> {
+    use nom::InputLength;
+    match take_while!(span, call!(|c: char| c.is_digit(10) || c == '_')) {
+        IResult::Done(rest, mantissa) => {
+            match exponent(rest) {
+                IResult::Done(_, exp) => {
+                    float_to_token(span, mantissa.input_len() + exp.input_len())
+                },
+                IResult::Error(e) => IResult::Error(e), // exponent is _required_ if no sep exists
+                IResult::Incomplete(needed) => IResult::Incomplete(needed),
+            }
+        },
+        IResult::Error(e) => IResult::Error(e),
+        IResult::Incomplete(needed) => IResult::Incomplete(needed),
+    }
+}
+fn float_with_sep(span: Span) -> nom::IResult<Span, Token> {
+    use nom::{InputLength, Slice};
+    const SEP_CHAR: &str = ".";
+    match terminated!(span, take_while!(call!(|c: char| c.is_digit(10) || c == '_')),
+            tag_span!(SEP_CHAR)) {
+        IResult::Done(rest, int_part) => {
+            let fractional = opt!(rest, take_while!(call!(|c: char| c.is_digit(10) || c == '_')));
+            match fractional {
+                IResult::Done(_, frac_part) => {
+                    let sep_len = SEP_CHAR.input_len();
+                    let int_part_len = int_part.input_len();
+                    let mantissa_len = match frac_part {
+                        Some(frac) => int_part_len + sep_len + frac.input_len(),
+                        None => int_part_len + sep_len
+                    };
+                    match exponent(span.slice(mantissa_len..)) {
+                        IResult::Done(_, exp) => {
+                            float_to_token(span, mantissa_len + exp.input_len())
+                        },
+                        IResult::Error(_) => {
+                            // exponent optional if '.' exists
+                            float_to_token(span, mantissa_len)
+                        },
+                        IResult::Incomplete(needed) => IResult::Incomplete(needed),
+                    }
+                },
+                IResult::Error(e) => IResult::Error(e),
+                IResult::Incomplete(needed) => IResult::Incomplete(needed),
+            }
+        },
+        IResult::Error(e) => IResult::Error(e),
+        IResult::Incomplete(_) => {
+            // treat incompletes as failures (usually due to missing SEP_CHAR)
+            IResult::Error(error_position!(nom::ErrorKind::Complete, span))
+        },
+    }
+}
+named!(lex_float_literal<Span, Token>, alt!(float_with_sep | float_no_sep));
+
+named!(lex_bool_literal<Span, Token>, alt!(
+    do_parse!(span: tag_span!("true")  >> (Token::new(TokenType::bool(true), span))) |
+    do_parse!(span: tag_span!("false") >> (Token::new(TokenType::bool(false), span)))
 ));
 
-named!(lex_oct_literal<Span, Token>, take_while_first_rest!(
-    2,
-    call!(|s: &str| s == "0o"),
-    call!(|c: char| c.is_digit(8) || c == '_'),
-    call!(|s: &str| parse_int(s, 8, 2).map(|i| TokenType::Literal(Literal::Number(
-        NumberLiteral::Int(i)))))
+fn string(span: Span) -> nom::IResult<Span, Token> {
+    use nom::{InputLength, Slice};
+
+    let mut index = 0;
+    let mut s = String::new();
+    while index < span.input_len() {
+        let rest = span.slice(index..);
+        let nextchar_len = match take!(rest, 1) {
+            nom::IResult::Done(_, c_span) => {
+                let c = c_span.as_slice();
+                match c {
+                    "\u{005C}" => { // escape character (backslash)
+                        const ESCAPE_CHAR_LEN: usize = 1; // length of a backslash
+                        // look-ahead
+                        if index + ESCAPE_CHAR_LEN < span.input_len() {
+                            let escape_seq = span.slice(index + ESCAPE_CHAR_LEN..);
+                            match escape(escape_seq) {
+                                nom::IResult::Done(_, (escaped, escaped_size)) => {
+                                    s.extend(escaped.chars());
+                                    index += escaped_size;
+                                },
+                                nom::IResult::Error(_) => {
+                                    // invalid escape
+                                    return nom::IResult::Error(error_position!(
+                                        CustomNomError::InvalidEscape.into(), rest))
+                                },
+                                nom::IResult::Incomplete(needed) => {
+                                    return nom::IResult::Incomplete(needed);
+                                }
+                            }
+                        } else {
+                            return nom::IResult::Error(error_position!(
+                                CustomNomError::UnclosedString.into(), rest))
+                        }
+                    },
+                    "\u{0022}" => { // double-quote
+                        // non-escaped quote, finalize
+                        return nom::IResult::Done(span.slice(index..),
+                            Token::new(TokenType::string(s), span.slice(..index)));
+                    },
+                    c => {
+                        s.extend(c.chars());
+                    }
+                }
+                c_span.input_len()
+            },
+            nom::IResult::Error(e) => { return nom::IResult::Error(e); },
+            nom::IResult::Incomplete(_) => { return nom::IResult::Error(error_position!(
+                CustomNomError::UnclosedString.into(), rest)); },
+        };
+        index += nextchar_len;
+    }
+    nom::IResult::Error(error_position!(CustomNomError::UnclosedString.into(), span))
+}
+named!(lex_string_literal<Span, Token>, delimited!(
+    tag_span!("\""),
+    string,
+    tag_span!("\"")
 ));
-
-named!(lex_bin_literal<Span, Token>, take_while_first_rest!(
-    2,
-    call!(|s: &str| s == "0b"),
-    call!(|c: char| c.is_digit(2) || c == '_'),
-    call!(|s: &str| parse_int(s, 2, 2).map(|i| TokenType::Literal(Literal::Number(
-        NumberLiteral::Int(i)))))
-));
-
-named!(lex_dec_literal<Span, Token>, take_while_first_rest!(
-    1,
-    call!(|s: &str| s.chars().all(|c| c.is_digit(10))),
-    call!(|c: char| c.is_digit(10) || c == '_'),
-    call!(|s: &str| parse_int(s, 10, 0).map(|i| TokenType::Literal(Literal::Number(
-        NumberLiteral::Int(i)))))
-));
-
-named!(lex_float_literal<Span, Token>,
-    call!(|i| nom::IResult::Error(error_position!(
-        nom::ErrorKind::Custom(CustomNomError::Unimplemented as u32), i))));
-
-named!(lex_bool_literal<Span, Token>,
-    call!(|i| nom::IResult::Error(error_position!(
-        nom::ErrorKind::Custom(CustomNomError::Unimplemented as u32), i))));
-
-named!(lex_string_literal<Span, Token>,
-    call!(|i| nom::IResult::Error(error_position!(
-        nom::ErrorKind::Custom(CustomNomError::Unimplemented as u32), i))));
 
 named!(lex_illegal<Span, Token>, do_parse!(
     span: take!(1) >> (Token::new(TokenType::Illegal, span))));
@@ -352,15 +374,13 @@ mod tests {
 
     #[test]
     fn test_lex_keywords() {
-        let input = "let fn if else return true false";
+        let input = "let fn if else return";
         let expected = [
             TokenType::Let,
             TokenType::Function,
             TokenType::If,
             TokenType::Else,
             TokenType::Return,
-            TokenType::True,
-            TokenType::False,
         ];
         assert_tokentypes_match(input, &expected);
     }
@@ -385,11 +405,11 @@ mod tests {
     fn test_lex_dec_literal() {
         let input = "1502 0000 052 1_234_567 1_2_3";
         let expected = [
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(1502))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(0))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(52))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(1234567))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(1_2_3))),
+            TokenType::int(1502),
+            TokenType::int(0),
+            TokenType::int(52),
+            TokenType::int(1234567),
+            TokenType::int(1_2_3),
         ];
         assert_tokentypes_match(input, &expected);
     }
@@ -399,13 +419,13 @@ mod tests {
         let input = "0x1D02 0x000 0x052 0x1_234 0x1_C_3 0xDEADBEEF";
         const P16: [i64; 8] = [1, 16, 256, 4096, 65536, 1048576, 16777216, 268435456];
         let expected = [
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(P16[3] + 13*P16[2] + 2))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(0))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(5*16 + 2))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(P16[3] + 2*P16[2] + 3*16 + 4))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(P16[2] + 12*16 + 3))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(13*P16[7] + 14*P16[6] + 10*P16[5]
-                + 13*P16[4] + 11*P16[3] + 14*P16[2] + 14*P16[1] + 15*P16[0])))
+            TokenType::int(P16[3] + 13*P16[2] + 2),
+            TokenType::int(0),
+            TokenType::int(5*16 + 2),
+            TokenType::int(P16[3] + 2*P16[2] + 3*16 + 4),
+            TokenType::int(P16[2] + 12*16 + 3),
+            TokenType::int(13*P16[7] + 14*P16[6] + 10*P16[5]
+                + 13*P16[4] + 11*P16[3] + 14*P16[2] + 14*P16[1] + 15*P16[0])
         ];
         assert_tokentypes_match(input, &expected);
     }
@@ -415,12 +435,20 @@ mod tests {
         let input = "0o1502 0o000 0o052 0o1_234 0o1_2_3";
         const P8: [i64; 4] = [1, 8, 64, 512];
         let expected = [
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(1*P8[3] + 5*P8[2] + 2))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(0))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(5*8 + 2))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(P8[3] + 2*P8[2] + 3*P8[1] + 4))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int(P8[2] + 2*
-                P8[1] + 3)))
+            TokenType::int(1*P8[3] + 5*P8[2] + 2),
+            TokenType::int(0),
+            TokenType::int(5*8 + 2),
+            TokenType::int(P8[3] + 2*P8[2] + 3*P8[1] + 4),
+            TokenType::int(P8[2] + 2*
+                P8[1] + 3)
+        ];
+        assert_tokentypes_match(input, &expected);
+
+        let input = "0o429";
+        // interpreted as an octal number 42, then a decimal number 9
+        let expected = [
+            TokenType::int(4*P8[1] + 2*P8[0]),
+            TokenType::int(9),
         ];
         assert_tokentypes_match(input, &expected);
     }
@@ -429,11 +457,95 @@ mod tests {
     fn test_lex_bin_literal() {
         let input = "0b101 0b001001 0b10_10";
         let expected = [
-            TokenType::Literal(Literal::Number(NumberLiteral::Int((1 << 2) + 1))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int((1 << 3) + 1))),
-            TokenType::Literal(Literal::Number(NumberLiteral::Int((1 << 3) + (1 << 1)))),
+            TokenType::int((1 << 2) + 1),
+            TokenType::int((1 << 3) + 1),
+            TokenType::int((1 << 3) + (1 << 1)),
         ];
         assert_tokentypes_match(input, &expected);
+    }
+
+    #[test]
+    fn test_lex_float_literal() {
+        let input = "20. 10.249 10.249_942 1_234_567.890_100";
+        let expected = [
+            TokenType::float(20.0),
+            TokenType::float(10.249),
+            TokenType::float(10.249942),
+            TokenType::float(1234567.8901)
+        ];
+        assert_tokentypes_match(input, &expected);
+
+        let input = "20.1e2 20.2e+3 20.3e-4 20.4E5 20.5E+6 2_0.6E-7 20.e8 20.9e1_0";
+        let expected = [
+            TokenType::float(2_010.),
+            TokenType::float(20_200.),
+            TokenType::float(0.00203),
+            TokenType::float(2_040_000.),
+            TokenType::float(20_500_000.),
+            TokenType::float(0.00000206),
+            TokenType::float(2_000_000_000.),
+            TokenType::float(209_000_000_000.),
+        ];
+        assert_tokentypes_match(input, &expected);
+
+        let input = "2e5 4e-2";
+        let expected = [
+            TokenType::float(200_000.),
+            TokenType::float(0.04),
+        ];
+        assert_tokentypes_match(input, &expected);
+    }
+
+    #[test]
+    fn test_lex_bool_literal() {
+        let input = "true false false";
+        let expected = [
+            TokenType::bool(true),
+            TokenType::bool(false),
+            TokenType::bool(false),
+        ];
+        assert_tokentypes_match(input, &expected);
+    }
+
+    #[test]
+    fn test_lex_string_literal() {
+        // basic strings and escapes
+        let input = r#""hello there" "all you people ☺" "how\nare you \"doing\"?""#;
+        let expected = [
+            TokenType::string("hello there"),
+            TokenType::string("all you people ☺"),
+            TokenType::string("how\nare you \"doing\"?"),
+        ];
+        assert_tokentypes_match(input, &expected);
+
+        // one-byte escapes
+        let input = r#""\x41\x2D\x5A" "\x61\x2D\x7A" "\x30\x2D\x39""#;
+        let expected = [
+            TokenType::string("A-Z"),
+            TokenType::string("a-z"),
+            TokenType::string("0-9"),
+        ];
+        assert_tokentypes_match(input, &expected);
+
+        // unicode escapes
+        let input = r#" "\u{263A}\u{2639}" "\u{1F525}" "\u{1F37E}\u{1F37F}" "#;
+        let expected = [
+            TokenType::string("☺☹"),
+            TokenType::string("🔥"),
+            TokenType::string("🍾🍿"),
+        ];
+        assert_tokentypes_match(input, &expected);
+
+        // invalid escape codes
+        let input = r#""\☺""#;
+        assert_illegal_token(input, Span::new("\"", 0, 1, 1));
+
+        let input = r#""\q""#;
+        assert_illegal_token(input, Span::new("\"", 0, 1, 1));
+
+       let input = r#""\x4☺""#;
+       assert_illegal_token(input, Span::new("\"", 0, 1, 1));
+
     }
 
     #[test]

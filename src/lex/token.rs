@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use lex::span::Span;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,12 +70,22 @@ pub enum TokenType {
     If,
     Else,
     Return,
-    True,
-    False
 }
 impl TokenType {
     pub fn into_token(self, span: Span) -> Token {
         Token::new(self, span)
+    }
+    pub fn float(f: f64) -> TokenType {
+        TokenType::Literal(Literal::Number(NumberLiteral::Float(f)))
+    }
+    pub fn int(i: i64) -> TokenType {
+        TokenType::Literal(Literal::Number(NumberLiteral::Int(i)))
+    }
+    pub fn string<T: Borrow<str>>(s: T) -> TokenType {
+        TokenType::Literal(Literal::String(s.borrow().to_string()))
+    }
+    pub fn bool(b: bool) -> TokenType {
+        TokenType::Literal(Literal::Bool(b))
     }
 }
 
