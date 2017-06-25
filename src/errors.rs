@@ -9,6 +9,7 @@ pub enum ErrorKind<'a> {
     LexerNoSpan(String),
     LexerSpan(String, Span<'a>),
     LexerToken(String, Token<'a>),
+    Parser(String),
 }
 impl<'a> fmt::Display for ErrorKind<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -19,12 +20,20 @@ impl<'a> fmt::Display for ErrorKind<'a> {
                 self.description(), span.line, span.column, s),
             ErrorKind::LexerToken(ref s, ref token) => write!(f, "{} at line {}, column {}: {}",
                 self.description(), token.span.line, token.span.column, s),
+            ErrorKind::Parser(ref s) => write!(f, "{}: {}", self.description(), s),
         }
     }
 }
 
 impl<'a> Error for ErrorKind<'a> {
-    fn description(&self) -> &str { "lexer error" }
+    fn description(&self) -> &str {
+        match *self {
+            ErrorKind::LexerNoSpan(_)
+                | ErrorKind::LexerSpan(_,_)
+                | ErrorKind::LexerToken(_,_) => { "lexer error" },
+            ErrorKind::Parser(_) => { "parser error" },
+        }
+    }
     fn cause(&self) -> Option<&Error> { None }
 }
 
