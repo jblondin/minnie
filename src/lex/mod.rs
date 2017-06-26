@@ -2,10 +2,7 @@ pub mod span;
 pub use self::span::Span;
 
 pub mod token;
-pub use self::token::{Token, TokenType};
-
-#[macro_use] mod nom_util;
-pub use self::nom_util::{CustomNomError, stringify_number};
+pub use self::token::{Token, Tokens, TokenType};
 
 #[macro_use] mod escape;
 

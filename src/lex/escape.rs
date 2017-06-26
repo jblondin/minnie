@@ -2,7 +2,7 @@ use std::char;
 
 use nom::{IResult, InputLength};
 
-use lex::nom_util::CustomNomError;
+use CustomNomError;
 use lex::span::Span;
 
 fn unicode(span: Span) -> IResult<Span, (String, usize)> {

@@ -10,6 +10,8 @@ pub enum CustomNomError {
     UnclosedString          = 5,
     InvalidEscape           = 6,
     Unicode                 = 7,
+    MissingOp               = 8,
+    EmptyInput              = 9,
 
     Unimplemented           = 99,
 }
@@ -38,30 +40,66 @@ macro_rules! tag_span {
     });
 }
 
+macro_rules! tag_token {
+    ($i:expr, $tag:expr) => ({
+        use nom::IResult;
+
+        match take!($i, 1) {
+            IResult::Done(rest, first_of_tokens) => {
+                let first_token = first_of_tokens.unwrap_first();
+                if first_token.ty == $tag {
+                    IResult::Done(rest, first_token)
+                } else {
+                    IResult::Error(error_position!(nom::ErrorKind::Tag, first_of_tokens))
+                }
+            },
+            IResult::Incomplete(needed) => IResult::Incomplete(needed),
+            IResult::Error(e) => IResult::Error(e),
+        }
+    });
+}
+
+/// opt! macro that ignores Incompletes of the sub-parser
+macro_rules! opt0 (
+    ($i:expr, $submac:ident!( $($args:tt)* )) => ({
+        let i_ = $i.clone();
+        match $submac!(i_, $($args)*) {
+            nom::IResult::Done(i,o)     => nom::IResult::Done(i, Some(o)),
+            _                           => {
+                let res: nom::IResult<_,_> = nom::IResult::Done($i, None);
+                res
+            },
+        }
+    });
+    ($i:expr, $f:expr) => (
+        opt0!($i, call!($f));
+    );
+);
+
 macro_rules! take_while_first_rest {
     ($i:expr, $prefix_cnt:expr, $firstmac:ident!( $($firstargs:tt)* ),
             $restmac:ident!( $($restargs:tt)* )) => ({
 
-        use nom::{InputLength, InputIter, Slice};
+        use nom::{InputLength, InputIter, Slice, IResult};
         let input = $i;
 
         match input.slice_index($prefix_cnt) {
-            None => nom::IResult::Incomplete(nom::Needed::Size($prefix_cnt)),
+            None => IResult::Incomplete(nom::Needed::Size($prefix_cnt)),
             Some(init_index) => {
                 if $firstmac!(input.slice(..init_index).as_slice(), $($firstargs)*) {
                     match input.slice(init_index..).position(|c| !$restmac!(c, $($restargs)*)) {
                         Some(index) => {
                             let index = index + init_index;
                             let Span { offset, line, column, .. } = input;
-                            nom::IResult::Done(input.slice(index..),
+                            IResult::Done(input.slice(index..),
                                 Span::new(input.slice(..index).as_slice(), offset, line, column))
                         },
                         None => {
-                            nom::IResult::Done(input.slice(input.input_len()..), input)
+                            IResult::Done(input.slice(input.input_len()..), input)
                         }
                     }
                 } else {
-                    nom::IResult::Error(error_position!(
+                    IResult::Error(error_position!(
                         CustomNomError::TakeWhileFirstRest.into(), input))
                 }
             }

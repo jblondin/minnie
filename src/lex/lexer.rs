@@ -4,7 +4,8 @@ use nom::{self, IResult};
 
 use errors::*;
 
-use lex::{CustomNomError, stringify_number};
+use CustomNomError;
+use nom_util::stringify_number;
 use lex::token::{Token, TokenType};
 use lex::span::Span;
 use lex::escape::escape;
