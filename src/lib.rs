@@ -11,3 +11,4 @@ pub use self::nom_util::CustomNomError;
 
 pub mod lex;
 pub mod parse;
+pub mod eval;
