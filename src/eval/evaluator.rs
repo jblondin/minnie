@@ -11,6 +11,8 @@ impl Evaluator {
     }
 
     pub fn eval_block(&mut self, mut block: Block) -> Value {
+        // need to reverse it since we use 'pop' (could also perhaps use a VecDeque, or a draining
+        // iterator, or statement cloning)
         block.reverse();
         self.eval_reversed_block(block)
     }
@@ -18,8 +20,8 @@ impl Evaluator {
     pub fn eval_reversed_block(&mut self, mut block: Block) -> Value {
         if let Some(first) = block.pop() {
             let value = self.eval_statement(first);
-            if block.is_empty() {
-                value
+            if value.is_return() || block.is_empty() {
+                value.ret()
             } else {
                 self.eval_block(block)
             }
@@ -31,7 +33,7 @@ impl Evaluator {
     pub fn eval_statement(&mut self, statement: Statement) -> Value {
         match statement {
             Statement::Assign(_, _)     => Value::Unimplemented,
-            Statement::Return(_)        => Value::Unimplemented,
+            Statement::Return(expr)     => Value::Return(box self.eval_expression(expr)),
             Statement::Expression(expr) => self.eval_expression(expr),
         }
     }
