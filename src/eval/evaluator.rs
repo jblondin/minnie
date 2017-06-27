@@ -134,8 +134,28 @@ mod tests {
 
     #[test]
     fn test_infix_literals() {
-        let input = "5 + 3";
-        let expected = Value::Integer(8);
-        assert_value_matches(input, expected);
+        assert_value_matches("5 + 3", Value::Integer(8));
+        assert_value_matches("5 + (3 * 4)", Value::Integer(17));
+        assert_value_matches("5 + 3 * 4", Value::Integer(17));
+        assert_value_matches("(5 + 3) * 4", Value::Integer(32));
+        assert_value_matches("5 / 2", Value::Float(2.5));
+        assert_value_matches("4 / 2", Value::Float(2.0));
+        assert_value_matches("5 - 2", Value::Integer(3));
+        assert_value_matches("5 - 2.0", Value::Float(3.0));
+        assert_value_matches("5.0 - 2", Value::Float(3.0));
+        assert_value_matches("5.0 - 2.0", Value::Float(3.0));
+        assert_value_matches("5 + 3 / 4 - 2", Value::Float(3.75));
+        assert_value_matches("(5 + 3) / (4 - 2)", Value::Float(4.0));
+    }
+
+    #[test]
+    fn test_return_literals() {
+        assert_value_matches("5 + 3; return 3 + 2; 19", Value::Integer(5));
+        assert_value_matches("5 + 3; return 3 + 2;", Value::Integer(5));
+        assert_value_matches("5 + 3; 3 + 2", Value::Integer(5));
+        assert_value_matches("5 + 3; 3 + 2;", Value::Integer(5));
+        assert_value_matches("return 5 + 3; 3 + 2", Value::Integer(8));
+        assert_value_matches("return 5 + 3; 3 + 2;", Value::Integer(8));
+        assert_value_matches("return (5 + 3); (3 + 2)", Value::Integer(8));
     }
 }
