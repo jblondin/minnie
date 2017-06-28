@@ -8,6 +8,7 @@ pub enum Value {
     Empty,
     Return(Box<Value>),
 
+    Error,
     Unimplemented,
 }
 

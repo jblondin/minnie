@@ -18,6 +18,8 @@ struct Repl<R, W, E> {
     pub print_tokens: bool,
     pub print_parsed_statements: bool,
     pub print_value: bool,
+
+    evaluator: Evaluator,
 }
 const STDOUT_ERRSTR: &str = "unable to write to stdout";
 const STDERR_ERRSTR: &str = "unable to write to stderr";
@@ -35,6 +37,8 @@ impl<R, W, E> Repl<R, W, E> where R: BufRead, W: Write, E: Write {
             print_tokens: false,
             print_parsed_statements: true,
             print_value: true,
+
+            evaluator: Evaluator::new(),
         }
     }
 
@@ -77,7 +81,7 @@ impl<R, W, E> Repl<R, W, E> where R: BufRead, W: Write, E: Write {
                             writeln!(self.cout, "{:?}", program).map_err(|e| format!("{}: {}",
                                 STDOUT_ERRSTR, e))?;
                         }
-                        let value = Evaluator::new().evaluate(program);
+                        let value = self.evaluator.evaluate(program);
                         if self.print_value {
                             writeln!(self.cout, "{:?}", value).map_err(|e| format!("{}: {}",
                                 STDOUT_ERRSTR, e))?;

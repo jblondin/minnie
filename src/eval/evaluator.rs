@@ -1,13 +1,20 @@
 use parse::ast::{Program, Block, Statement, Expression, Literal, Identifier, InfixOp};
 use eval::value::Value;
+use eval::frame::Frame;
 
-pub struct Evaluator {}
+pub struct Evaluator {
+    frame: Frame,
+}
 
 impl Evaluator {
-    pub fn new() -> Evaluator { Evaluator {} }
+    pub fn new() -> Evaluator {
+        Evaluator {
+            frame: Frame::new()
+        }
+    }
 
     pub fn evaluate(&mut self, program: Program) -> Value {
-        self.eval_block(program)
+        self.eval_block(program).ret()
     }
 
     pub fn eval_block(&mut self, mut block: Block) -> Value {
@@ -21,9 +28,9 @@ impl Evaluator {
         if let Some(first) = block.pop() {
             let value = self.eval_statement(first);
             if value.is_return() || block.is_empty() {
-                value.ret()
+                value
             } else {
-                self.eval_block(block)
+                self.eval_reversed_block(block)
             }
         } else {
             Value::Empty
@@ -32,9 +39,13 @@ impl Evaluator {
 
     pub fn eval_statement(&mut self, statement: Statement) -> Value {
         match statement {
-            Statement::Assign(_, _)     => Value::Unimplemented,
-            Statement::Return(expr)     => Value::Return(box self.eval_expression(expr)),
-            Statement::Expression(expr) => self.eval_expression(expr),
+            Statement::Assign(ident, expr) => {
+                let value = self.eval_expression(expr);
+                self.frame.set(ident.clone(), value);
+                Value::Empty
+            },
+            Statement::Return(expr)        => Value::Return(box self.eval_expression(expr)),
+            Statement::Expression(expr)    => self.eval_expression(expr),
         }
     }
 
@@ -47,8 +58,11 @@ impl Evaluator {
         }
     }
 
-    pub fn eval_identifier(&mut self, _: Identifier) -> Value {
-        Value::Unimplemented
+    pub fn eval_identifier(&mut self, identifier: Identifier) -> Value {
+        match self.frame.get(&identifier) {
+            Some(value) => value,
+            None        => Value::Error
+        }
     }
 
     pub fn eval_literal(&mut self, literal: Literal) -> Value {
@@ -169,5 +183,12 @@ mod tests {
         assert_value_matches("5 + 3; return { 3 + 2 };", Value::Integer(5));
         assert_value_matches("5 + 3; { return 3 + 2; }; 2 + 4", Value::Integer(5));
         assert_value_matches("5 + 3; return { 3 + 2 }; 2 + 4", Value::Integer(5));
+    }
+
+    #[test]
+    fn test_assign_statement() {
+        assert_value_matches("let a = 5; a", Value::Integer(5));
+        assert_value_matches("let a = 5; a + 2", Value::Integer(7));
+        assert_value_matches("let a = 5; let b = 2; 5 + 2", Value::Integer(7));
     }
 }
