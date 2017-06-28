@@ -43,6 +43,7 @@ impl Evaluator {
             Expression::Identifier(ident)      => self.eval_identifier(ident),
             Expression::Literal(literal)       => self.eval_literal(literal),
             Expression::Infix(op, left, right) => self.eval_infix(op, *left, *right),
+            Expression::Block(block)           => self.eval_block(block),
         }
     }
 
@@ -157,5 +158,16 @@ mod tests {
         assert_value_matches("return 5 + 3; 3 + 2", Value::Integer(8));
         assert_value_matches("return 5 + 3; 3 + 2;", Value::Integer(8));
         assert_value_matches("return (5 + 3); (3 + 2)", Value::Integer(8));
+    }
+
+    #[test]
+    fn test_block_expression() {
+        assert_value_matches("{5 + 3}", Value::Integer(8));
+        assert_value_matches("{5 + 3;}", Value::Integer(8));
+        assert_value_matches("{5 + 3;};", Value::Integer(8));
+        assert_value_matches("5 + 3; { 3 + 2 }", Value::Integer(5));
+        assert_value_matches("5 + 3; return { 3 + 2 };", Value::Integer(5));
+        assert_value_matches("5 + 3; { return 3 + 2; }; 2 + 4", Value::Integer(5));
+        assert_value_matches("5 + 3; return { 3 + 2 }; 2 + 4", Value::Integer(5));
     }
 }

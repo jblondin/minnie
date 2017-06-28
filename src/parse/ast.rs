@@ -16,7 +16,8 @@ pub enum Statement {
 pub enum Expression {
     Identifier(Identifier),
     Literal(Literal),
-    Infix(InfixOp, Box<Expression>, Box<Expression>) // boxes required to avoid recursive structure
+    Infix(InfixOp, Box<Expression>, Box<Expression>), // box to avoid recursive structure
+    Block(Block),
 }
 impl Expression {
     pub fn into_stmt(self) -> Statement { Statement::Expression(self) }

@@ -60,7 +60,8 @@ named!(parse_expression_statement<Tokens, Statement>, do_parse!(
 named!(parse_unitary_expression<Tokens, Expression>, alt!(
     do_parse!(ident: call!(parse_identifier) >> (ident.into_expr())) |
     do_parse!(literal: call!(parse_literal) >> (literal.into_expr())) |
-    do_parse!(expression: call!(parse_parenthetical) >> (expression))
+    do_parse!(expression: call!(parse_parenthetical) >> (expression)) |
+    do_parse!(block: call!(parse_block) >> (block))
 ));
 
 named!(parse_parenthetical<Tokens, Expression>, do_parse!(
@@ -68,6 +69,14 @@ named!(parse_parenthetical<Tokens, Expression>, do_parse!(
     expression: parse_expression >>
     tag_token!(TokenType::RParen) >>
     (expression)
+));
+
+
+named!(parse_block<Tokens, Expression>, do_parse!(
+    tag_token!(TokenType::LBrace) >>
+    statements: many0!(parse_statement) >>
+    tag_token!(TokenType::RBrace) >>
+    (Expression::Block(statements))
 ));
 
 // start the expression parser
@@ -180,9 +189,9 @@ mod tests {
     fn assert_match<T, F>(input: &str, expected: &[T], f: F)
             where F: Fn(&Statement, &T) -> bool, T: Debug {
         let tokens = Lexer::lex(input).unwrap();
-        println!("tokens: {:?}", tokens);
+        println!("tokens: {:#?}", tokens);
         let program = Parser::parse(tokens).unwrap();
-        println!("program: {:?}", program);
+        println!("program: {:#?}", program);
         assert_eq!(program.len(), expected.len());
         for (parsed_statement, expected_statement) in program.iter().zip(expected.iter()) {
             if !f(parsed_statement, expected_statement) {
@@ -307,6 +316,17 @@ mod tests {
                 ),
                 box Identifier::new("d").into_expr(),
             ).into_stmt()
+        ];
+        assert_program_matches(input, &expected);
+    }
+
+    #[test]
+    fn test_block_expression() {
+        let input = "a; {b} c";
+        let expected = vec![
+            Identifier::new("a").into_expr().into_stmt(),
+            Expression::Block(vec![Identifier::new("b").into_expr().into_stmt()]).into_stmt(),
+            Identifier::new("c").into_expr().into_stmt(),
         ];
         assert_program_matches(input, &expected);
     }
