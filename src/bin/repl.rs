@@ -1,17 +1,23 @@
+extern crate rustyline;
 extern crate minnie;
 
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
+
+use rustyline::{CompletionType, Editor};
+use rustyline::completion::FilenameCompleter;
+use rustyline::error::ReadlineError;
 
 use minnie::lex::Lexer;
 use minnie::parse::Parser;
 use minnie::eval::Evaluator;
 
-type Result = ::std::result::Result<(), String>;
 
-struct Repl<R, W, E> {
-    input: String,
+mod result { pub type Result<T> = ::std::result::Result<T, String>; }
+type Result = result::Result<()>;
 
-    cin: R,
+struct Repl<W, E> {
+    editor: Editor<FilenameCompleter>,
+
     cout: W,
     cerr: E,
 
@@ -21,16 +27,28 @@ struct Repl<R, W, E> {
 
     evaluator: Evaluator,
 }
+const HISTORY_FILE: &str = "repl_history.txt";
+const PROMPT: &str = ">> ";
 const STDOUT_ERRSTR: &str = "unable to write to stdout";
 const STDERR_ERRSTR: &str = "unable to write to stderr";
-const STDOUT_FLUSH_ERRSTR: &str = "unable to flush stdout";
 
-impl<R, W, E> Repl<R, W, E> where R: BufRead, W: Write, E: Write {
-    fn new(cin: R, cout: W, cerr: E) -> Repl<R, W, E> {
+impl<W, E> Repl<W, E> where W: Write, E: Write {
+    fn new(mut cout: W, cerr: E) -> Repl<W, E> {
         Repl {
-            input: String::new(),
+            editor: {
+                let config = rustyline::Config::builder()
+                    .history_ignore_space(true)
+                    .completion_type(CompletionType::List)
+                    .build();
+                let completer = FilenameCompleter::new();
+                let mut editor = Editor::with_config(config);
+                editor.set_completer(Some(completer));
+                if editor.load_history(HISTORY_FILE).is_err() {
+                    writeln!(cout, "No previous history.").expect(STDOUT_ERRSTR);
+                }
+                editor
+            },
 
-            cin: cin,
             cout: cout,
             cerr: cerr,
 
@@ -45,29 +63,28 @@ impl<R, W, E> Repl<R, W, E> where R: BufRead, W: Write, E: Write {
     fn start(&mut self) -> Result {
         let mut running = true;
         while running {
-            write!(self.cout, ">> ").map_err(|e| format!("{}: {}", STDOUT_ERRSTR, e))?;
-            self.cout.flush().map_err(|e| format!("{}: {}", STDOUT_FLUSH_ERRSTR, e))?;
-            self.input = String::new();
-            match self.cin.read_line(&mut self.input) {
-                Ok(_) => {
-                    if self.input.len() == 0 {
-                        running = false;
-                        writeln!(self.cout).map_err(|e| format!("{}: {}", STDOUT_ERRSTR, e))?;
-                        continue;
-                    }
-                    self.read_eval_print()?;
-                }
-                Err(error) => {
-                    writeln!(self.cerr, "Error: {}", error).map_err(|e| format!("{}: {}",
-                        STDERR_ERRSTR, e))?;
+            let line = self.editor.readline(PROMPT);
+            match line {
+                Ok(line) => {
+                    self.editor.add_history_entry(line.as_ref());
+                    self.read_eval_print(line)?;
+                },
+                Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
+                    running = false;
+                },
+                Err(err) => {
+                    writeln!(self.cerr, "Read error: {}", err)
+                        .map_err(|e| format!("{}: {}", STDERR_ERRSTR, e))?;
                 }
             }
         }
+        self.editor.save_history(HISTORY_FILE)
+            .map_err(|e| format!("Unable to save history: {}", e))?;
         Ok(())
     }
 
-    fn read_eval_print(&mut self) -> Result {
-        match Lexer::lex(&self.input) {
+    fn read_eval_print(&mut self, input: String) -> Result {
+        match Lexer::lex(&input) {
             Ok(tokens) => {
                 if self.print_tokens {
                     for token in &tokens {
@@ -103,8 +120,8 @@ impl<R, W, E> Repl<R, W, E> where R: BufRead, W: Write, E: Write {
 
 fn main() {
     println!("Minnie version 0.0.1");
-    let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
-    let result = Repl::new(stdin.lock(), stdout.lock(), stderr.lock()).start();
+    let (stdout, stderr) = (io::stdout(), io::stderr());
+    let result = Repl::new(stdout.lock(), stderr.lock()).start();
 
     match result {
         Ok(_) => { ::std::process::exit(0); },
