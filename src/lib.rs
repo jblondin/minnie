@@ -1,6 +1,5 @@
 #![feature(box_syntax)]
-#![feature(unicode)]
-#![feature(trace_macros)]
+#![feature(rustc_private)]
 
 #[macro_use] extern crate nom;
 
