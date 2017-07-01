@@ -17,6 +17,14 @@ pub enum Expression {
     Identifier(Identifier),
     Literal(Literal),
     Infix(InfixOp, Box<Expression>, Box<Expression>), // box to avoid recursive structure
+    Function {
+        parameters: Vec<Identifier>,
+        body: Block,
+    },
+    FnCall {
+        function: Box<Expression>,
+        arguments: Vec<Expression>,
+    },
     Block(Block),
 }
 impl Expression {
@@ -60,10 +68,14 @@ pub enum InfixOp {
     LessThanEqual,
     Equal,
     NotEqual,
+    FnCall,
+    Index,
 }
 impl InfixOp {
     pub fn precedence(&self) -> Precedence {
         match *self {
+            InfixOp::Index                                   => Precedence::Index,
+            InfixOp::FnCall                                  => Precedence::Call,
             InfixOp::Multiply | InfixOp::Divide              => Precedence::Product,
             InfixOp::Add | InfixOp::Subtract                 => Precedence::Sum,
             InfixOp::GreaterThan | InfixOp::GreaterThanEqual
@@ -87,8 +99,8 @@ pub enum Precedence {
 impl TokenType {
     pub fn infix_op(&self) -> Option<InfixOp> {
         match *self {
-            TokenType::LBracket         => None,
-            TokenType::LParen           => None,
+            TokenType::LBracket         => Some(InfixOp::Index),
+            TokenType::LParen           => Some(InfixOp::FnCall),
             TokenType::Asterisk         => Some(InfixOp::Multiply),
             TokenType::Slash            => Some(InfixOp::Divide),
             TokenType::Plus             => Some(InfixOp::Add),
@@ -106,15 +118,9 @@ impl TokenType {
         // indexing or calling has no InfixOp and their own precedences.
         // everything that has an InfixOp has specific precedences to that operator
         // everything else is of lowest precedence
-        match *self {
-            TokenType::LBracket => Precedence::Index,
-            TokenType::LParen   => Precedence::Call,
-            ref ty                  => {
-                match ty.infix_op() {
-                    Some(io) => io.precedence(),
-                    None => Precedence::Lowest,
-                }
-            },
+        match self.infix_op() {
+            Some(io) => io.precedence(),
+            None => Precedence::Lowest,
         }
     }
 }

@@ -122,3 +122,28 @@ pub fn stringify_number(span: Span) -> String {
     for c in chars { ret.push(c); }
     ret
 }
+
+macro_rules! parse_list0 {
+    ($input:expr, $parse_each:expr) => ({
+        let parser = $parse_each;
+        alt!($input,
+            do_parse!(
+                first: parser >>
+                rest: many0!(
+                    do_parse!(
+                        tag_token!(TokenType::Comma) >>
+                        arg: parser >>
+                        (arg)
+                    )
+                ) >>
+                ({
+                    let mut list = Vec::new();
+                    list.push(first);
+                    list.extend(rest.iter().cloned());
+                    list
+                })
+            ) |
+            value!(Vec::new())
+        )
+    });
+}

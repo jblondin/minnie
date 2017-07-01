@@ -9,7 +9,7 @@ pub struct Evaluator {
 impl Evaluator {
     pub fn new() -> Evaluator {
         Evaluator {
-            frame: Frame::new()
+            frame: Frame::new(),
         }
     }
 
@@ -51,10 +51,14 @@ impl Evaluator {
 
     pub fn eval_expression(&mut self, expr: Expression) -> Value {
         match expr {
-            Expression::Identifier(ident)      => self.eval_identifier(ident),
-            Expression::Literal(literal)       => self.eval_literal(literal),
-            Expression::Infix(op, left, right) => self.eval_infix(op, *left, *right),
-            Expression::Block(block)           => self.eval_block(block),
+            Expression::Identifier(ident)       => self.eval_identifier(ident),
+            Expression::Literal(literal)        => self.eval_literal(literal),
+            Expression::Infix(op, left, right)  => self.eval_infix(op, *left, *right),
+            Expression::Block(block)            => self.eval_block(block),
+            Expression::Function { parameters, body }
+                                                => self.eval_function_def(parameters, body),
+            Expression::FnCall { function, arguments }
+                                                => self.eval_function_call(*function, arguments),
         }
     }
 
@@ -85,7 +89,39 @@ impl Evaluator {
             InfixOp::Divide   => divide_values(left_value, right_value),
             _                 => Value::Unimplemented,
         }
+    }
 
+    pub fn eval_function_def(&mut self, params: Vec<Identifier>, body: Block) -> Value {
+        Value::Function {
+            parameters: params,
+            body: body,
+            context: self.frame.clone(),
+        }
+    }
+
+    pub fn eval_function_call(&mut self, func: Expression, args: Vec<Expression>) -> Value {
+        let function_value = self.eval_expression(func);
+        if let Value::Function { parameters, body, context } = function_value {
+            if args.len() != parameters.len() { return Value::Error; }
+            let mut args_evald: Vec<Value> = args.iter()
+                .map(|expr| self.eval_expression(expr.clone())).collect();
+            // save caller frame
+            let caller_frame = self.frame.clone();
+            // create a new frame out of the context of where the function is defined
+            let mut callee_frame = Frame::push(&context);
+            for (identifier, value) in parameters.iter().zip(args_evald.drain(..)) {
+                callee_frame.set(identifier.clone(), value);
+            }
+            //FIXME: I really don't like this, should move to a more functional method,
+            // where I pass the frame around, but that may be bulky too... maybe the frame contains
+            // the evaluator instead?
+            self.frame = callee_frame;
+            let value = self.eval_block(body);
+            self.frame = caller_frame;
+            value.ret()
+        } else {
+            Value::Error
+        }
     }
 }
 
@@ -143,8 +179,20 @@ mod tests {
         let program = Parser::parse(tokens).unwrap();
         println!("program: {:?}", program);
         let value = Evaluator::new().evaluate(program);
-        println!("value: {:?}", value);
-        assert_eq!(value, expected);
+        println!("value: {:#?}", value);
+        println!("expected: {:#?}", expected);
+        match value {
+            Value::Function { parameters, body, .. } => {
+                if let Value::Function { parameters: exp_params, body: exp_body, .. } = expected {
+                    // ignore context
+                    assert_eq!(parameters, exp_params);
+                    assert_eq!(body, exp_body);
+                } else {
+                    panic!("Expected Value::Function, but found: {:?}", expected);
+                }
+            },
+            other => { assert_eq!(other, expected); }
+        }
     }
 
     #[test]
@@ -190,5 +238,24 @@ mod tests {
         assert_value_matches("let a = 5; a", Value::Integer(5));
         assert_value_matches("let a = 5; a + 2", Value::Integer(7));
         assert_value_matches("let a = 5; let b = 2; 5 + 2", Value::Integer(7));
+    }
+
+    #[test]
+    fn test_function_def() {
+        assert_value_matches("let add2 = fn(a) { return a + 2; }; add2",
+            Value::Function {
+                parameters: vec![Identifier::new("a")],
+                body: vec![
+                    Statement::Return(
+                        Expression::Infix(
+                            InfixOp::Add,
+                            box Identifier::new("a").into_expr(),
+                            box Literal::Int(2).into_expr()
+                        )
+                    )
+                ],
+                context: Frame::new(),
+            }
+        );
     }
 }

@@ -61,7 +61,8 @@ named!(parse_unitary_expression<Tokens, Expression>, alt!(
     do_parse!(ident: call!(parse_identifier) >> (ident.into_expr())) |
     do_parse!(literal: call!(parse_literal) >> (literal.into_expr())) |
     do_parse!(expression: call!(parse_parenthetical) >> (expression)) |
-    do_parse!(block: call!(parse_block) >> (block))
+    do_parse!(block: call!(parse_block_expression) >> (block)) |
+    do_parse!(func: call!(parse_function) >> (func))
 ));
 
 named!(parse_parenthetical<Tokens, Expression>, do_parse!(
@@ -71,12 +72,25 @@ named!(parse_parenthetical<Tokens, Expression>, do_parse!(
     (expression)
 ));
 
+named!(parse_block_expression<Tokens, Expression>, do_parse!(
+    statements: parse_block >>
+    (Expression::Block(statements))
+));
 
-named!(parse_block<Tokens, Expression>, do_parse!(
+named!(parse_block<Tokens, Vec<Statement>>, do_parse!(
     tag_token!(TokenType::LBrace) >>
     statements: many0!(parse_statement) >>
     tag_token!(TokenType::RBrace) >>
-    (Expression::Block(statements))
+    (statements)
+));
+
+named!(parse_function<Tokens, Expression>, do_parse!(
+    tag_token!(TokenType::Function) >>
+    tag_token!(TokenType::LParen) >>
+    params: parse_list0!(parse_identifier) >>
+    tag_token!(TokenType::RParen) >>
+    block: parse_block >>
+    (Expression::Function { parameters: params, body: block })
 ));
 
 // start the expression parser
@@ -94,34 +108,41 @@ fn parse_expr_precedence(input: Tokens, precedence: Precedence)
 fn topdown(input: Tokens, left: Expression, precedence: Precedence)
         -> nom::IResult<Tokens, Expression> {
     use nom::InputLength;
+    use parse::ast::InfixOp;
 
     if input.input_len() == 0 {
         // no more tokens, return
         return nom::IResult::Done(input, left);
     }
-    let (rest, token) = try_parse!(input, take!(1));
-    if token.input_len() == 0 {
-        // no more tokens, return
-        nom::IResult::Done(rest, left)
+    let (_, token) = try_parse!(input, take!(1));
+    assert!(token.input_len() > 0); // since input.input_len() > 0, this should non-empty
+    let peek_token_type = &token.unwrap_first().ty;
+    if precedence < peek_token_type.precedence() {
+        let expression_parser = match peek_token_type.infix_op() {
+            Some(InfixOp::FnCall)  => parse_call_expression,
+            Some(InfixOp::Index)   => parse_index_expression,
+            _                      => parse_infix_expression,
+        };
+        let (remaining, next_token) = try_parse!(input, apply!(expression_parser, left));
+        topdown(remaining, next_token, precedence)
     } else {
-        let peek_precedence = token.unwrap_first().ty.precedence();
-        if precedence < peek_precedence {
-            let expression_parser = match peek_precedence {
-                Precedence::Call  => parse_call_expression,
-                Precedence::Index => parse_index_expression,
-                _                 => parse_infix_expression,
-            };
-            let (remaining, next_token) = try_parse!(input, apply!(expression_parser, left));
-            topdown(remaining, next_token, precedence)
-        } else {
-            nom::IResult::Done(input, left)
-        }
+        nom::IResult::Done(input, left)
     }
 }
 
-fn parse_call_expression(input: Tokens, _: Expression) -> nom::IResult<Tokens, Expression> {
-    nom::IResult::Error(error_position!(CustomNomError::Unimplemented.into(), input))
+fn parse_call_expression(input: Tokens, function: Expression) -> nom::IResult<Tokens, Expression> {
+    do_parse!(
+        input,
+        tag_token!(TokenType::LParen) >>
+        fn_arguments: parse_list0!(parse_expression) >>
+        tag_token!(TokenType::RParen) >>
+        (Expression::FnCall { function: box function, arguments: fn_arguments })
+    )
 }
+
+// named!(parse_expression_list<Tokens, Vec<Expression>>, alt!(
+// ));
+
 fn parse_index_expression(input: Tokens, _: Expression) -> nom::IResult<Tokens, Expression> {
     nom::IResult::Error(error_position!(CustomNomError::Unimplemented.into(), input))
 }
@@ -327,6 +348,132 @@ mod tests {
             Identifier::new("a").into_expr().into_stmt(),
             Expression::Block(vec![Identifier::new("b").into_expr().into_stmt()]).into_stmt(),
             Identifier::new("c").into_expr().into_stmt(),
+        ];
+        assert_program_matches(input, &expected);
+    }
+
+    #[test]
+    fn test_function_call() {
+        let input = "add(4, 2)";
+        let expected = vec![
+            Expression::FnCall {
+                function: box Identifier::new("add").into_expr(),
+                arguments: vec![
+                    Literal::Int(4).into_expr(),
+                    Literal::Int(2).into_expr(),
+                ]
+            }.into_stmt()
+        ];
+        assert_program_matches(input, &expected);
+
+        let input = "add(4, 2);";
+        assert_program_matches(input, &expected);
+
+        let input = "foo(3)";
+        let expected = vec![
+            Expression::FnCall {
+                function: box Identifier::new("foo").into_expr(),
+                arguments: vec![Literal::Int(3).into_expr()],
+            }.into_stmt()
+        ];
+        assert_program_matches(input, &expected);
+
+        let input = "foo()";
+        let expected = vec![
+            Expression::FnCall {
+                function: box Identifier::new("foo").into_expr(),
+                arguments: vec![],
+            }.into_stmt()
+        ];
+        assert_program_matches(input, &expected);
+
+        let input = "foo(bar(4), baz())";
+        let expected = vec![
+            Expression::FnCall {
+                function: box Identifier::new("foo").into_expr(),
+                arguments: vec![
+                    Expression::FnCall {
+                        function: box Identifier::new("bar").into_expr(),
+                        arguments: vec![Literal::Int(4).into_expr()],
+                    },
+                    Expression::FnCall {
+                        function: box Identifier::new("baz").into_expr(),
+                        arguments: vec![],
+                    }
+                ],
+            }.into_stmt()
+        ];
+        assert_program_matches(input, &expected);
+    }
+
+    #[test]
+    fn test_function_def() {
+        let input = "fn(a) { return a + 2; }";
+        let expected = vec![
+            Expression::Function {
+                parameters: vec![Identifier::new("a")],
+                body: vec![
+                    Statement::Return(
+                        Expression::Infix(
+                            InfixOp::Add,
+                            box Identifier::new("a").into_expr(),
+                            box Literal::Int(2).into_expr()
+                        )
+                    )
+                ],
+            }.into_stmt()
+        ];
+        assert_program_matches(input, &expected);
+
+        let input = "fn(a, b) { return a + b; }";
+        let expected = vec![
+            Expression::Function {
+                parameters: vec![
+                    Identifier::new("a"),
+                    Identifier::new("b"),
+                ],
+                body: vec![
+                    Statement::Return(
+                        Expression::Infix(
+                            InfixOp::Add,
+                            box Identifier::new("a").into_expr(),
+                            box Identifier::new("b").into_expr()
+                        )
+                    )
+                ],
+            }.into_stmt()
+        ];
+        assert_program_matches(input, &expected);
+
+        //TODO: implement last-expression return
+        // let input = "fn(a, b) { a + b }";
+        // let expected = vec![
+        //     Expression::Function {
+        //         parameters: vec![
+        //             Identifier::new("a"),
+        //             Identifier::new("b"),
+        //         ],
+        //         body: vec![
+        //             Statement::Return(
+        //                 Expression::Infix(
+        //                     InfixOp::Add,
+        //                     box Identifier::new("a").into_expr(),
+        //                     box Identifier::new("b").into_expr()
+        //                 )
+        //             )
+        //         ],
+        //     }.into_stmt()
+        // ];
+        // assert_program_matches(input, &expected);
+
+        let input = "fn() { return 2; }";
+        let expected = vec![
+            Expression::Function {
+                parameters: vec![],
+                body: vec![
+                    Statement::Return(Literal::Int(2).into_expr())
+                ],
+            }.into_stmt()
         ];
         assert_program_matches(input, &expected);
     }
