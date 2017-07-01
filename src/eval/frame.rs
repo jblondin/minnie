@@ -22,7 +22,7 @@ impl Frame {
     pub fn push(parent: &Frame) -> Frame {
         Frame {
             frame_data: Rc::new(RefCell::new(FrameData::new())),
-            parent: Some(box parent.clone()),
+            parent: Some(Box::new(parent.clone())),
         }
     }
 

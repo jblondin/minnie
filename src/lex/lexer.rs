@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use nom::{self, IResult};
+use unicode_xid::UnicodeXID;
 
 use errors::*;
 
@@ -93,8 +94,8 @@ named!(lex_keywords<Span, Token>, alt!(
 ));
 
 named!(lex_identifier<Span, Token>, do_parse!(
-    span: take_while_first_rest!(1, call!(|s: &str| s.chars().all(|c| c.is_xid_start())),
-        call!(|c: char| c.is_xid_continue())) >>
+    span: take_while_first_rest!(1, call!(|s: &str| s.chars().all(|c| UnicodeXID::is_xid_start(c))),
+        call!(|c: char| UnicodeXID::is_xid_continue(c))) >>
     (Token::new(TokenType::Identifier(span.as_slice().to_string()), span))
 ));
 

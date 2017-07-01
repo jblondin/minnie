@@ -1,7 +1,5 @@
-#![feature(box_syntax)]
-#![feature(rustc_private)]
-
 #[macro_use] extern crate nom;
+extern crate unicode_xid;
 
 mod errors;
 

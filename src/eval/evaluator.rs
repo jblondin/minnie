@@ -44,7 +44,7 @@ impl Evaluator {
                 self.frame.set(ident.clone(), value);
                 Value::Empty
             },
-            Statement::Return(expr)        => Value::Return(box self.eval_expression(expr)),
+            Statement::Return(expr)        => Value::Return(Box::new(self.eval_expression(expr))),
             Statement::Expression(expr)    => self.eval_expression(expr),
         }
     }
@@ -249,8 +249,8 @@ mod tests {
                     Statement::Return(
                         Expression::Infix(
                             InfixOp::Add,
-                            box Identifier::new("a").into_expr(),
-                            box Literal::Int(2).into_expr()
+                            Box::new(Identifier::new("a").into_expr()),
+                            Box::new(Literal::Int(2).into_expr())
                         )
                     )
                 ],

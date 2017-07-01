@@ -136,12 +136,9 @@ fn parse_call_expression(input: Tokens, function: Expression) -> nom::IResult<To
         tag_token!(TokenType::LParen) >>
         fn_arguments: parse_list0!(parse_expression) >>
         tag_token!(TokenType::RParen) >>
-        (Expression::FnCall { function: box function, arguments: fn_arguments })
+        (Expression::FnCall { function: Box::new(function), arguments: fn_arguments })
     )
 }
-
-// named!(parse_expression_list<Tokens, Vec<Expression>>, alt!(
-// ));
 
 fn parse_index_expression(input: Tokens, _: Expression) -> nom::IResult<Tokens, Expression> {
     nom::IResult::Error(error_position!(CustomNomError::Unimplemented.into(), input))
@@ -159,7 +156,8 @@ fn parse_infix_expression(input: Tokens, left: Expression) -> nom::IResult<Token
             Some(op) => {
                 let (remaining, right) =
                     try_parse!(rest, apply!(parse_expr_precedence, op.precedence()));
-                nom::IResult::Done(remaining, Expression::Infix(op, box left, box right))
+                nom::IResult::Done(remaining, Expression::Infix(op, Box::new(left),
+                    Box::new(right)))
             },
             None => {
                 nom::IResult::Error(error_position!(CustomNomError::MissingOp.into(), input))
@@ -243,8 +241,8 @@ mod tests {
         let expected = vec![
             Expression::Infix(
                 InfixOp::Add,
-                box Identifier::new("a").into_expr(),
-                box Identifier::new("b").into_expr()
+                Box::new(Identifier::new("a").into_expr()),
+                Box::new(Identifier::new("b").into_expr())
             ).into_stmt()
         ];
         assert_program_matches(input, &expected);
@@ -253,8 +251,8 @@ mod tests {
         let expected = vec![
             Expression::Infix(
                 InfixOp::Add,
-                box Identifier::new("a").into_expr(),
-                box Literal::Float(5.2).into_expr(),
+                Box::new(Identifier::new("a").into_expr()),
+                Box::new(Literal::Float(5.2).into_expr()),
             ).into_stmt()
         ];
         assert_program_matches(input, &expected);
@@ -263,12 +261,12 @@ mod tests {
         let expected = vec![
             Expression::Infix(
                 InfixOp::Add,
-                box Identifier::new("a").into_expr(),
-                box Expression::Infix(
+                Box::new(Identifier::new("a").into_expr()),
+                Box::new(Expression::Infix(
                     InfixOp::Multiply,
-                    box Identifier::new("b").into_expr(),
-                    box Literal::Float(5.2).into_expr(),
-                )
+                    Box::new(Identifier::new("b").into_expr()),
+                    Box::new(Literal::Float(5.2).into_expr()),
+                ))
             ).into_stmt()
         ];
         assert_program_matches(input, &expected);
@@ -280,12 +278,12 @@ mod tests {
         let expected = vec![
             Expression::Infix(
                 InfixOp::Add,
-                box Identifier::new("a").into_expr(),
-                box Expression::Infix(
+                Box::new(Identifier::new("a").into_expr()),
+                Box::new(Expression::Infix(
                     InfixOp::Multiply,
-                    box Identifier::new("b").into_expr(),
-                    box Literal::Float(5.2).into_expr(),
-                )
+                    Box::new(Identifier::new("b").into_expr()),
+                    Box::new(Literal::Float(5.2).into_expr()),
+                ))
             ).into_stmt()
         ];
         assert_program_matches(input, &expected);
@@ -294,12 +292,12 @@ mod tests {
         let expected = vec![
             Expression::Infix(
                 InfixOp::Multiply,
-                box Expression::Infix(
+                Box::new(Expression::Infix(
                     InfixOp::Add,
-                    box Identifier::new("a").into_expr(),
-                    box Identifier::new("b").into_expr(),
-                ),
-                box Literal::Float(5.2).into_expr(),
+                    Box::new(Identifier::new("a").into_expr()),
+                    Box::new(Identifier::new("b").into_expr()),
+                )),
+                Box::new(Literal::Float(5.2).into_expr()),
             ).into_stmt()
         ];
         assert_program_matches(input, &expected);
@@ -308,16 +306,16 @@ mod tests {
         let expected = vec![
             Expression::Infix(
                 InfixOp::Divide,
-                box Expression::Infix(
+                Box::new(Expression::Infix(
                     InfixOp::Add,
-                    box Identifier::new("a").into_expr(),
-                    box Identifier::new("b").into_expr(),
-                ),
-                box Expression::Infix(
+                    Box::new(Identifier::new("a").into_expr()),
+                    Box::new(Identifier::new("b").into_expr()),
+                )),
+                Box::new(Expression::Infix(
                     InfixOp::Subtract,
-                    box Identifier::new("c").into_expr(),
-                    box Identifier::new("d").into_expr(),
-                )
+                    Box::new(Identifier::new("c").into_expr()),
+                    Box::new(Identifier::new("d").into_expr()),
+                ))
             ).into_stmt()
         ];
         assert_program_matches(input, &expected);
@@ -326,16 +324,16 @@ mod tests {
         let expected = vec![
             Expression::Infix(
                 InfixOp::Subtract,
-                box Expression::Infix(
+                Box::new(Expression::Infix(
                     InfixOp::Add,
-                    box Identifier::new("a").into_expr(),
-                    box Expression::Infix(
+                    Box::new(Identifier::new("a").into_expr()),
+                    Box::new(Expression::Infix(
                         InfixOp::Divide,
-                        box Identifier::new("b").into_expr(),
-                        box Identifier::new("c").into_expr(),
-                    ),
-                ),
-                box Identifier::new("d").into_expr(),
+                        Box::new(Identifier::new("b").into_expr()),
+                        Box::new(Identifier::new("c").into_expr()),
+                    )),
+                )),
+                Box::new(Identifier::new("d").into_expr()),
             ).into_stmt()
         ];
         assert_program_matches(input, &expected);
@@ -357,7 +355,7 @@ mod tests {
         let input = "add(4, 2)";
         let expected = vec![
             Expression::FnCall {
-                function: box Identifier::new("add").into_expr(),
+                function: Box::new(Identifier::new("add").into_expr()),
                 arguments: vec![
                     Literal::Int(4).into_expr(),
                     Literal::Int(2).into_expr(),
@@ -372,7 +370,7 @@ mod tests {
         let input = "foo(3)";
         let expected = vec![
             Expression::FnCall {
-                function: box Identifier::new("foo").into_expr(),
+                function: Box::new(Identifier::new("foo").into_expr()),
                 arguments: vec![Literal::Int(3).into_expr()],
             }.into_stmt()
         ];
@@ -381,7 +379,7 @@ mod tests {
         let input = "foo()";
         let expected = vec![
             Expression::FnCall {
-                function: box Identifier::new("foo").into_expr(),
+                function: Box::new(Identifier::new("foo").into_expr()),
                 arguments: vec![],
             }.into_stmt()
         ];
@@ -390,14 +388,14 @@ mod tests {
         let input = "foo(bar(4), baz())";
         let expected = vec![
             Expression::FnCall {
-                function: box Identifier::new("foo").into_expr(),
+                function: Box::new(Identifier::new("foo").into_expr()),
                 arguments: vec![
                     Expression::FnCall {
-                        function: box Identifier::new("bar").into_expr(),
+                        function: Box::new(Identifier::new("bar").into_expr()),
                         arguments: vec![Literal::Int(4).into_expr()],
                     },
                     Expression::FnCall {
-                        function: box Identifier::new("baz").into_expr(),
+                        function: Box::new(Identifier::new("baz").into_expr()),
                         arguments: vec![],
                     }
                 ],
@@ -416,8 +414,8 @@ mod tests {
                     Statement::Return(
                         Expression::Infix(
                             InfixOp::Add,
-                            box Identifier::new("a").into_expr(),
-                            box Literal::Int(2).into_expr()
+                            Box::new(Identifier::new("a").into_expr()),
+                            Box::new(Literal::Int(2).into_expr())
                         )
                     )
                 ],
@@ -436,8 +434,8 @@ mod tests {
                     Statement::Return(
                         Expression::Infix(
                             InfixOp::Add,
-                            box Identifier::new("a").into_expr(),
-                            box Identifier::new("b").into_expr()
+                            Box::new(Identifier::new("a").into_expr()),
+                            Box::new(Identifier::new("b").into_expr())
                         )
                     )
                 ],
@@ -457,8 +455,8 @@ mod tests {
         //             Statement::Return(
         //                 Expression::Infix(
         //                     InfixOp::Add,
-        //                     box Identifier::new("a").into_expr(),
-        //                     box Identifier::new("b").into_expr()
+        //                     Box::new(Identifier::new("a").into_expr()),
+        //                     Box::new(Identifier::new("b").into_expr())
         //                 )
         //             )
         //         ],
