@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::borrow::Borrow;
 use std::iter::Enumerate;
 use std::ops::{Range, RangeTo, RangeFrom, RangeFull};
@@ -7,34 +8,34 @@ use nom::{InputLength, InputIter, Slice};
 use lex::span::Span;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Token<'a> {
-    pub ty: TokenType,
+pub struct TokenSpan<'a, T> {
+    pub token: T,
 
     pub span: Span<'a>,
 }
-impl<'a> Token<'a> {
-    pub fn new(ty: TokenType, span: Span<'a>) -> Token<'a> {
-        Token {
-            ty: ty,
+impl<'a, T> TokenSpan<'a, T> where T: Debug + Clone + PartialEq {
+    pub fn new(token: T, span: Span<'a>) -> TokenSpan<'a, T> {
+        TokenSpan {
+            token: token,
             span: span,
         }
     }
-    pub fn is_type(&self, ty: &TokenType) -> bool {
-        &self.ty == ty
+    pub fn is_token(&self, token: &T) -> bool {
+        &self.token == token
     }
-    pub fn matches_type(&self, other: &Token) -> bool {
-        &self.ty == &other.ty
+    pub fn matches_token(&self, other: &TokenSpan<'a, T>) -> bool {
+        &self.token == &other.token
     }
 }
 
-impl<'a> InputLength for Token<'a> {
+impl<'a, T> InputLength for TokenSpan<'a, T> {
     fn input_len(&self) -> usize {
         self.span.input_len()
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TokenType {
+pub enum Token {
     Illegal,
     Eof,
 
@@ -81,23 +82,27 @@ pub enum TokenType {
     Else,
     Return,
 }
-impl TokenType {
-    pub fn into_token(self, span: Span) -> Token {
-        Token::new(self, span)
+
+pub type SpToken<'a> = TokenSpan<'a, Token>;
+
+impl Token {
+    pub fn into_token(self, span: Span) -> SpToken {
+        SpToken::new(self, span)
     }
-    pub fn float(f: f64) -> TokenType {
-        TokenType::Literal(Literal::Number(NumberLiteral::Float(f)))
+    pub fn float(f: f64) -> Token {
+        Token::Literal(Literal::Number(NumberLiteral::Float(f)))
     }
-    pub fn int(i: i64) -> TokenType {
-        TokenType::Literal(Literal::Number(NumberLiteral::Int(i)))
+    pub fn int(i: i64) -> Token {
+        Token::Literal(Literal::Number(NumberLiteral::Int(i)))
     }
-    pub fn string<T: Borrow<str>>(s: T) -> TokenType {
-        TokenType::Literal(Literal::String(s.borrow().to_string()))
+    pub fn string<T: Borrow<str>>(s: T) -> Token {
+        Token::Literal(Literal::String(s.borrow().to_string()))
     }
-    pub fn bool(b: bool) -> TokenType {
-        TokenType::Literal(Literal::Bool(b))
+    pub fn bool(b: bool) -> Token {
+        Token::Literal(Literal::Bool(b))
     }
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
@@ -112,37 +117,47 @@ pub enum NumberLiteral {
     Float(f64),
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Tokens<'a> {
+#[derive(PartialEq, Debug)]
+pub struct Tokens<'a, T> where T: 'a {
     pub start: usize,
     pub end: usize,
-    pub tokens: &'a [Token<'a>],
+    pub tokens: &'a [TokenSpan<'a, T>],
 }
+impl<'a, T> Clone for Tokens<'a, T> {
+    fn clone(&self) -> Tokens<'a, T> {
+        Tokens {
+            start: self.start,
+            end: self.end,
+            tokens: self.tokens,
+        }
+    }
+}
+impl<'a, T> Copy for Tokens<'a, T> { }
 
-impl<'a> Tokens<'a> {
-    pub fn from_vec(v: &'a Vec<Token<'a>>) -> Self {
+impl<'a, T> Tokens<'a, T> {
+    pub fn from_vec(v: &'a Vec<TokenSpan<'a, T>>) -> Self {
         Tokens {
             start: 0,
             end: v.len(),
             tokens: v.as_slice(),
         }
     }
-    pub fn as_slice(&self) -> &'a [Token<'a>] {
+    pub fn as_slice(&self) -> &'a [TokenSpan<'a, T>] {
         self.tokens
     }
-    pub fn unwrap_first(&self) -> &'a Token<'a> {
+    pub fn unwrap_first(&self) -> &'a TokenSpan<'a, T> {
         &self.tokens[0]
     }
 }
 
-impl<'a> InputLength for Tokens<'a> {
+impl<'a, T> InputLength for Tokens<'a, T> {
     #[inline]
     fn input_len(&self) -> usize {
         self.tokens.len()
     }
 }
 
-impl<'a> Slice<Range<usize>> for Tokens<'a> {
+impl<'a, T> Slice<Range<usize>> for Tokens<'a, T> {
     #[inline]
     fn slice(&self, range: Range<usize>) -> Self {
         Tokens {
@@ -153,21 +168,21 @@ impl<'a> Slice<Range<usize>> for Tokens<'a> {
     }
 }
 
-impl<'a> Slice<RangeTo<usize>> for Tokens<'a> {
+impl<'a, T> Slice<RangeTo<usize>> for Tokens<'a, T> {
     #[inline]
     fn slice(&self, range: RangeTo<usize>) -> Self {
         self.slice(0..range.end)
     }
 }
 
-impl<'a> Slice<RangeFrom<usize>> for Tokens<'a> {
+impl<'a, T> Slice<RangeFrom<usize>> for Tokens<'a, T> {
     #[inline]
     fn slice(&self, range: RangeFrom<usize>) -> Self {
         self.slice(range.start..self.end - self.start)
     }
 }
 
-impl<'a> Slice<RangeFull> for Tokens<'a> {
+impl<'a, T> Slice<RangeFull> for Tokens<'a, T> {
     #[inline]
     fn slice(&self, _: RangeFull) -> Self {
         Tokens {
@@ -178,18 +193,18 @@ impl<'a> Slice<RangeFull> for Tokens<'a> {
     }
 }
 
-impl<'a> InputIter for Tokens<'a> {
-    type Item = &'a Token<'a>;
-    type RawItem = Token<'a>;
-    type Iter = Enumerate<::std::slice::Iter<'a, Token<'a>>>;
-    type IterElem = ::std::slice::Iter<'a, Token<'a>>;
+impl<'a, T> InputIter for Tokens<'a, T> where T: Clone {
+    type Item = &'a TokenSpan<'a, T>;
+    type RawItem = TokenSpan<'a, T>;
+    type Iter = Enumerate<::std::slice::Iter<'a, TokenSpan<'a, T>>>;
+    type IterElem = ::std::slice::Iter<'a, TokenSpan<'a, T>>;
 
     #[inline]
-    fn iter_indices(&self) -> Enumerate<::std::slice::Iter<'a, Token<'a>>> {
+    fn iter_indices(&self) -> Enumerate<::std::slice::Iter<'a, TokenSpan<'a, T>>> {
         self.tokens.iter().enumerate()
     }
     #[inline]
-    fn iter_elements(&self) -> ::std::slice::Iter<'a, Token<'a>> {
+    fn iter_elements(&self) -> ::std::slice::Iter<'a, TokenSpan<'a, T>> {
         self.tokens.iter()
     }
     #[inline]
@@ -205,3 +220,5 @@ impl<'a> InputIter for Tokens<'a> {
         }
     }
 }
+
+pub type SpTokens<'a> = Tokens<'a, Token>;

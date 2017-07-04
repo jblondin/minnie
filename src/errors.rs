@@ -2,13 +2,13 @@ use std::fmt;
 use std::error::Error;
 use std::result;
 
-use lex::{Span, Token};
+use lex::{Span, SpToken};
 
 #[derive(Debug)]
 pub enum ErrorKind<'a> {
     LexerNoSpan(String),
     LexerSpan(String, Span<'a>),
-    LexerToken(String, Token<'a>),
+    LexerToken(String, SpToken<'a>),
     Parser(String),
 }
 impl<'a> fmt::Display for ErrorKind<'a> {
@@ -18,8 +18,8 @@ impl<'a> fmt::Display for ErrorKind<'a> {
                 self.description(), s),
             ErrorKind::LexerSpan(ref s, ref span)   => write!(f, "{} at line {}, column {}: {}",
                 self.description(), span.line, span.column, s),
-            ErrorKind::LexerToken(ref s, ref token) => write!(f, "{} at line {}, column {}: {}",
-                self.description(), token.span.line, token.span.column, s),
+            ErrorKind::LexerToken(ref s, ref ts) => write!(f, "{} at line {}, column {}: {}",
+                self.description(), ts.span.line, ts.span.column, s),
             ErrorKind::Parser(ref s) => write!(f, "{}: {}", self.description(), s),
         }
     }

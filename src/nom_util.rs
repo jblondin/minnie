@@ -47,7 +47,7 @@ macro_rules! tag_token {
         match take!($i, 1) {
             IResult::Done(rest, first_of_tokens) => {
                 let first_token = first_of_tokens.unwrap_first();
-                if first_token.ty == $tag {
+                if first_token.token == $tag {
                     IResult::Done(rest, first_token)
                 } else {
                     IResult::Error(error_position!(nom::ErrorKind::Tag, first_of_tokens))
@@ -131,7 +131,7 @@ macro_rules! parse_list0 {
                 first: parser >>
                 rest: many0!(
                     do_parse!(
-                        tag_token!(TokenType::Comma) >>
+                        tag_token!(Token::Comma) >>
                         arg: parser >>
                         (arg)
                     )

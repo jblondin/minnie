@@ -2,15 +2,15 @@ use nom;
 
 use errors::*;
 
-use lex::{Token, Tokens, TokenType};
+use lex::{SpToken, SpTokens, Token};
 use lex::token;
 use nom_util::CustomNomError;
 use parse::ast::{Program, Statement, Identifier, Expression, Literal, Precedence};
 
 pub struct Parser {}
 impl Parser {
-    pub fn parse(tokens: Vec<Token>) -> Result<Program> {
-        match parse(Tokens::from_vec(&tokens)) {
+    pub fn parse(tokens: Vec<SpToken>) -> Result<Program> {
+        match parse(SpTokens::from_vec(&tokens)) {
             nom::IResult::Done(_, program) => Ok(program),
             nom::IResult::Incomplete(needed) => {
                 let num_needed = match needed {
@@ -26,38 +26,38 @@ impl Parser {
     }
 }
 
-named!(parse<Tokens, Program>, many0!(parse_statement));
+named!(parse<SpTokens, Program>, many0!(parse_statement));
 
-named!(parse_statement<Tokens, Statement>, alt!(
+named!(parse_statement<SpTokens, Statement>, alt!(
     parse_let_statement |
     parse_return_statement |
     parse_expression_statement
 ));
 
-named!(parse_let_statement<Tokens, Statement>, do_parse!(
-    tag_token!(TokenType::Let) >>
+named!(parse_let_statement<SpTokens, Statement>, do_parse!(
+    tag_token!(Token::Let) >>
     identifier: parse_identifier >>
-    tag_token!(TokenType::Equal) >>
+    tag_token!(Token::Equal) >>
     expression: parse_expression >>
-    tag_token!(TokenType::Semicolon) >>
+    tag_token!(Token::Semicolon) >>
     (Statement::Assign(identifier, expression))
 ));
 
-named!(parse_return_statement<Tokens, Statement>, do_parse!(
-    tag_token!(TokenType::Return) >>
+named!(parse_return_statement<SpTokens, Statement>, do_parse!(
+    tag_token!(Token::Return) >>
     expression: parse_expression >>
-    tag_token!(TokenType::Semicolon) >>
+    tag_token!(Token::Semicolon) >>
     (Statement::Return(expression))
 ));
 
-named!(parse_expression_statement<Tokens, Statement>, do_parse!(
+named!(parse_expression_statement<SpTokens, Statement>, do_parse!(
     expression: parse_expression >>
-    opt0!(tag_token!(TokenType::Semicolon)) >>
+    opt0!(tag_token!(Token::Semicolon)) >>
     (Statement::Expression(expression))
 ));
 
 // non-operator expressions
-named!(parse_unitary_expression<Tokens, Expression>, alt!(
+named!(parse_unitary_expression<SpTokens, Expression>, alt!(
     do_parse!(ident: call!(parse_identifier) >> (ident.into_expr())) |
     do_parse!(literal: call!(parse_literal) >> (literal.into_expr())) |
     do_parse!(expression: call!(parse_parenthetical) >> (expression)) |
@@ -65,39 +65,39 @@ named!(parse_unitary_expression<Tokens, Expression>, alt!(
     do_parse!(func: call!(parse_function) >> (func))
 ));
 
-named!(parse_parenthetical<Tokens, Expression>, do_parse!(
-    tag_token!(TokenType::LParen) >>
+named!(parse_parenthetical<SpTokens, Expression>, do_parse!(
+    tag_token!(Token::LParen) >>
     expression: parse_expression >>
-    tag_token!(TokenType::RParen) >>
+    tag_token!(Token::RParen) >>
     (expression)
 ));
 
-named!(parse_block_expression<Tokens, Expression>, do_parse!(
+named!(parse_block_expression<SpTokens, Expression>, do_parse!(
     statements: parse_block >>
     (Expression::Block(statements))
 ));
 
-named!(parse_block<Tokens, Vec<Statement>>, do_parse!(
-    tag_token!(TokenType::LBrace) >>
+named!(parse_block<SpTokens, Vec<Statement>>, do_parse!(
+    tag_token!(Token::LBrace) >>
     statements: many0!(parse_statement) >>
-    tag_token!(TokenType::RBrace) >>
+    tag_token!(Token::RBrace) >>
     (statements)
 ));
 
-named!(parse_function<Tokens, Expression>, do_parse!(
-    tag_token!(TokenType::Function) >>
-    tag_token!(TokenType::LParen) >>
+named!(parse_function<SpTokens, Expression>, do_parse!(
+    tag_token!(Token::Function) >>
+    tag_token!(Token::LParen) >>
     params: parse_list0!(parse_identifier) >>
-    tag_token!(TokenType::RParen) >>
+    tag_token!(Token::RParen) >>
     block: parse_block >>
     (Expression::Function { parameters: params, body: block })
 ));
 
 // start the expression parser
-named!(parse_expression<Tokens, Expression>, apply!(parse_expr_precedence, Precedence::Lowest));
+named!(parse_expression<SpTokens, Expression>, apply!(parse_expr_precedence, Precedence::Lowest));
 
-fn parse_expr_precedence(input: Tokens, precedence: Precedence)
-        -> nom::IResult<Tokens, Expression> {
+fn parse_expr_precedence(input: SpTokens, precedence: Precedence)
+        -> nom::IResult<SpTokens, Expression> {
     do_parse!(input,
         left: parse_unitary_expression >>
         result: apply!(topdown, left, precedence) >>
@@ -105,8 +105,8 @@ fn parse_expr_precedence(input: Tokens, precedence: Precedence)
     )
 }
 
-fn topdown(input: Tokens, left: Expression, precedence: Precedence)
-        -> nom::IResult<Tokens, Expression> {
+fn topdown(input: SpTokens, left: Expression, precedence: Precedence)
+        -> nom::IResult<SpTokens, Expression> {
     use nom::InputLength;
     use parse::ast::InfixOp;
 
@@ -116,7 +116,7 @@ fn topdown(input: Tokens, left: Expression, precedence: Precedence)
     }
     let (_, token) = try_parse!(input, take!(1));
     assert!(token.input_len() > 0); // since input.input_len() > 0, this should non-empty
-    let peek_token_type = &token.unwrap_first().ty;
+    let peek_token_type = &token.unwrap_first().token;
     if precedence < peek_token_type.precedence() {
         let expression_parser = match peek_token_type.infix_op() {
             Some(InfixOp::FnCall)  => parse_call_expression,
@@ -130,28 +130,28 @@ fn topdown(input: Tokens, left: Expression, precedence: Precedence)
     }
 }
 
-fn parse_call_expression(input: Tokens, function: Expression) -> nom::IResult<Tokens, Expression> {
+fn parse_call_expression(input: SpTokens, function: Expression) -> nom::IResult<SpTokens, Expression> {
     do_parse!(
         input,
-        tag_token!(TokenType::LParen) >>
+        tag_token!(Token::LParen) >>
         fn_arguments: parse_list0!(parse_expression) >>
-        tag_token!(TokenType::RParen) >>
+        tag_token!(Token::RParen) >>
         (Expression::FnCall { function: Box::new(function), arguments: fn_arguments })
     )
 }
 
-fn parse_index_expression(input: Tokens, _: Expression) -> nom::IResult<Tokens, Expression> {
+fn parse_index_expression(input: SpTokens, _: Expression) -> nom::IResult<SpTokens, Expression> {
     nom::IResult::Error(error_position!(CustomNomError::Unimplemented.into(), input))
 }
 
-fn parse_infix_expression(input: Tokens, left: Expression) -> nom::IResult<Tokens, Expression> {
+fn parse_infix_expression(input: SpTokens, left: Expression) -> nom::IResult<SpTokens, Expression> {
     use nom::InputLength;
 
     let (rest, token) = try_parse!(input, take!(1));
     if token.input_len() == 0 {
         nom::IResult::Error(error_position!(CustomNomError::MissingOp.into(), input))
     } else {
-        let peek_op = token.unwrap_first().ty.infix_op();
+        let peek_op = token.unwrap_first().token.infix_op();
         match peek_op {
             Some(op) => {
                 let (remaining, right) =
@@ -166,21 +166,21 @@ fn parse_infix_expression(input: Tokens, left: Expression) -> nom::IResult<Token
     }
 }
 
-named!(parse_identifier<Tokens, Identifier>, map_opt!(
+named!(parse_identifier<SpTokens, Identifier>, map_opt!(
     complete!(take!(1)),
-    |tokens: Tokens| {
-        match tokens.unwrap_first().ty {
-            TokenType::Identifier(ref s) => Some(Identifier::new(s.clone())),
+    |tokens: SpTokens| {
+        match tokens.unwrap_first().token {
+            Token::Identifier(ref s) => Some(Identifier::new(s.clone())),
             _ => None
         }
     }
 ));
 
-named!(parse_literal<Tokens, Literal>, map_opt!(
+named!(parse_literal<SpTokens, Literal>, map_opt!(
     complete!(take!(1)),
-    |tokens: Tokens| {
-        match tokens.unwrap_first().ty {
-            TokenType::Literal(ref literal) => {
+    |tokens: SpTokens| {
+        match tokens.unwrap_first().token {
+            Token::Literal(ref literal) => {
                 match *literal {
                     token::Literal::Number(ref number_literal) => {
                         match *number_literal {

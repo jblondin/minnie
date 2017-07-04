@@ -2,7 +2,7 @@ pub mod span;
 pub use self::span::Span;
 
 pub mod token;
-pub use self::token::{Token, Tokens, TokenType};
+pub use self::token::{SpTokens, Token, SpToken};
 
 #[macro_use] mod escape;
 

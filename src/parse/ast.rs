@@ -1,6 +1,6 @@
 use std::borrow::Borrow;
 
-use lex::token::TokenType;
+use lex::token::Token;
 
 pub type Program = Block;
 pub type Block = Vec<Statement>;
@@ -96,21 +96,21 @@ pub enum Precedence {
     Index           = 7,
 }
 
-impl TokenType {
+impl Token {
     pub fn infix_op(&self) -> Option<InfixOp> {
         match *self {
-            TokenType::LBracket         => Some(InfixOp::Index),
-            TokenType::LParen           => Some(InfixOp::FnCall),
-            TokenType::Asterisk         => Some(InfixOp::Multiply),
-            TokenType::Slash            => Some(InfixOp::Divide),
-            TokenType::Plus             => Some(InfixOp::Add),
-            TokenType::Minus            => Some(InfixOp::Subtract),
-            TokenType::GreaterThan      => Some(InfixOp::GreaterThan),
-            TokenType::GreaterThanEqual => Some(InfixOp::GreaterThanEqual),
-            TokenType::LessThan         => Some(InfixOp::LessThan),
-            TokenType::LessThanEqual    => Some(InfixOp::LessThanEqual),
-            TokenType::DoubleEqual      => Some(InfixOp::Equal),
-            TokenType::NotEqual         => Some(InfixOp::NotEqual),
+            Token::LBracket         => Some(InfixOp::Index),
+            Token::LParen           => Some(InfixOp::FnCall),
+            Token::Asterisk         => Some(InfixOp::Multiply),
+            Token::Slash            => Some(InfixOp::Divide),
+            Token::Plus             => Some(InfixOp::Add),
+            Token::Minus            => Some(InfixOp::Subtract),
+            Token::GreaterThan      => Some(InfixOp::GreaterThan),
+            Token::GreaterThanEqual => Some(InfixOp::GreaterThanEqual),
+            Token::LessThan         => Some(InfixOp::LessThan),
+            Token::LessThanEqual    => Some(InfixOp::LessThanEqual),
+            Token::DoubleEqual      => Some(InfixOp::Equal),
+            Token::NotEqual         => Some(InfixOp::NotEqual),
             _                           => None,
         }
     }
